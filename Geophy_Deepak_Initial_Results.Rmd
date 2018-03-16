@@ -1,0 +1,155 @@
+---
+title: "Geophy_NYC_Prelimnary_Analysis"
+author: "Deepak Sharma"
+date: "March 15, 2018"
+output: html_document
+---
+
+Load libraries
+```{r,include=FALSE}
+x <- c("data.table","ggmap","dplyr","tidyr","rgdal")
+lapply(x, library, character.only = TRUE)
+
+```
+
+
+Download the Condominium and Garden dataset from the website and check their dimensions
+
+```{r,echo=FALSE}
+Condominium <- fread("https://data.cityofnewyork.us/api/views/ikqj-pyhc/rows.csv?accessType=DOWNLOAD")
+Gardens <- fread("https://data.cityofnewyork.us/api/views/ajxm-kzmj/rows.csv?accessType=DOWNLOAD")
+dim(Condominium) #1165x46
+dim(Gardens) #536x17
+```
+
+
+Look at the two data files structures
+
+```{r,results="hide"}
+#Condominium dataset
+glimpse(Condominium)
+
+#Gardens dataset
+glimpse(Gardens)
+```
+
+Remove NA's from the columns Latitude,Longitude,Postcode from both data sets and rename the datsets
+
+```{r}
+condominium <- Condominium %>% drop_na(Latitude,Longitude,Postcode) #New dimension 1148x46
+gardens <-   Gardens %>% drop_na(Latitude,Longitude,Postcode) #New dimension 429x17
+```
+
+Explore some on the columns in condominium data to get idea about range of values
+
+```{r}
+names(condominium)
+hist(condominium$`MANHATTAN CONDOMINIUM PROPERTY Gross Income per SqFt`,col="green")
+hist(condominium$`MANHATTAN CONDOMINIUM PROPERTY Year Built`,col="green")
+hist(condominium$`MANHATTAN CONDOMINIUM PROPERTY Market Value per SqFt`,col="green")
+hist(condominium$`MANHATTAN CONDOMINIUM PROPERTY Gross SqFt`,col="green") #Two properties are quite big.
+hist(condominium$`MANHATTAN CONDOMINIUM PROPERTY Total Units`,col="green")
+
+```
+
+Every thing looks normal till now
+#Observations:
+#Two of the properties are much larger than the others.Their addresses are:
+#Adress1: 333 East 30 Street - No Park - Gross income/sqft = 28
+#Adress2: 1601 3 avenue - Has Ruppert park - Gross income/sqft = 37
+
+Look at the two large properties:
+
+```{r,include=FALSE}
+Very_large_GrossSqFt <- filter(condominium,`MANHATTAN CONDOMINIUM PROPERTY Gross SqFt`>1000000)
+glimpse(Very_large_GrossSqFt)
+```
+
+TASK 1 - (a) Visualize garden datset on the map
+
+```{r}
+mapC <- get_map("New York City",zoom=11)
+#Garden distribution across the city
+ggmap(mapC)+geom_point(data=gardens,aes(x=Longitude,y=Latitude))
+```
+
+TASK 1 - (b) Visualize condominium datset on the map
+
+```{r}
+mapM <- get_map("Manhattan,New York City",zoom=12)
+ggmap(mapM)+geom_point(data=condominium,aes(x=Longitude,y=Latitude))
+
+ggmap(mapM)+geom_point(data=condominium,aes(x=Longitude,y=Latitude,
+color=`MANHATTAN CONDOMINIUM PROPERTY Market Value per SqFt`),na.rm = T)+
+scale_color_gradient(low="beige",high="blue")
+
+ggmap(mapM)+geom_point(data=condominium,aes(x=Longitude,y=Latitude,
+color=`MANHATTAN CONDOMINIUM PROPERTY Gross Income per SqFt`),na.rm = T)+
+scale_color_gradient(low="beige",high="blue")
+
+ggmap(mapM)+geom_point(data=condominium,aes(x=Longitude,y=Latitude,
+color=`MANHATTAN CONDOMINIUM PROPERTY Gross SqFt`),na.rm = T)+
+scale_color_gradient(low="beige",high="blue")
+
+ggmap(mapM)+geom_point(data=condominium,aes(x=Longitude,y=Latitude,
+color=`MANHATTAN CONDOMINIUM PROPERTY Year Built`),na.rm = T)+
+scale_color_gradient(low="beige",high="blue")
+#******************************************************************************
+```
+
+TASK 2 
+ 
+First we generate a new table NTA_info with only few of the important features,
+and arrange it using "MANHATTAN CONDOMINIUM PROPERTY Gross Income per SqFt"
+
+#NTA_info table
+```{r}
+NTA_info <- condominium %>% group_by(NTA) %>% 
+  summarize(Mean_property_value_perSqFt = mean(`MANHATTAN CONDOMINIUM PROPERTY Market Value per SqFt`,na.rm=TRUE),
+  Mean_income_perSqFt = mean(`MANHATTAN CONDOMINIUM PROPERTY Gross Income per SqFt`,na.rm=TRUE),
+  Mean_area_perSqFt = mean(`MANHATTAN CONDOMINIUM PROPERTY Gross SqFt`,na.rm=TRUE),
+  Mean_year_built = mean(`MANHATTAN CONDOMINIUM PROPERTY Year Built`,na.rm=TRUE)) %>% 
+  arrange(desc(Mean_income_perSqFt))
+
+glimpse(NTA_info)
+```
+
+TASK - 3 
+
+Creating Postcode_garden table based on total number of gardens in each Post code
+
+```{r}
+Postcode_garden <- gardens %>% group_by(Postcode) %>% summarise(Number_of_gardens=n()) %>% arrange(desc(Number_of_gardens))
+glimpse(Postcode_garden) #dimension 81x2
+```
+
+Creating Postcode_condo table with several parameters grouped by Postcode values
+
+```{r}
+Postcode_condo <- condominium %>% group_by(Postcode) %>% 
+  summarize(Mean_property_value_perSqFt = mean(`MANHATTAN CONDOMINIUM PROPERTY Market Value per SqFt`,na.rm=TRUE),
+  Mean_income_perSqFt = mean(`MANHATTAN CONDOMINIUM PROPERTY Gross Income per SqFt`,na.rm=TRUE),
+  Mean_area_perSqFt = mean(`MANHATTAN CONDOMINIUM PROPERTY Gross SqFt`,na.rm=TRUE),
+  Mean_year_built = mean(`MANHATTAN CONDOMINIUM PROPERTY Year Built`,na.rm=TRUE)) %>% 
+  arrange(desc(Mean_property_value_perSqFt))
+glimpse(Postcode_condo) #dimension 44x5
+```
+
+
+Merging Postcode_garden and Postcode_condo in one table - Postcode_info
+#Postcode_info table 
+
+```{r}
+#Combining Postcode_garden and Postcode_condo tables.
+Postcode_info <- full_join(Postcode_garden,Postcode_condo) %>% arrange(Postcode) #101x6
+glimpse(Postcode_info)
+```
+
+Scatter plot and correlation matrix
+```{r}
+plot(Postcode_info)
+Postcode_matrix =as.matrix(Postcode_info)
+cor(Postcode_matrix, use = "pairwise.complete.obs")
+```
+
+#Read attached PDF report.
